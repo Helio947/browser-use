@@ -1,0 +1,139 @@
+<!doctype html>
+<!-- Minimal stand-in for WhatsApp Web's DOM, used by tests/test_whatsapp_skills.py. -->
+<html>
+<head>
+<meta charset="utf-8"><title>WhatsApp</title>
+<style>[contenteditable], button, canvas, [role="button"] { display: block; min-height: 20px; min-width: 100px; border: 1px solid #ccc; }</style>
+</head>
+<body>
+<div id="app">
+	<div id="qr" style="display:none"><canvas aria-label="Scan this QR code to link a device!"></canvas></div>
+	<div id="side" style="display:none">
+		<div contenteditable="true" role="textbox" id="search"></div>
+		<div id="pane-side" aria-label="Chat list"></div>
+	</div>
+	<div id="main" style="display:none">
+		<header><span id="chat-title" title=""></span><span id="chat-status"></span></header>
+		<div id="messages"></div>
+		<footer>
+			<button aria-label="Attach" id="attach"></button>
+			<div contenteditable="true" role="textbox" id="composer"></div>
+		</footer>
+	</div>
+	<div id="attach-menu" style="display:none">
+		<input type="file" accept="image/*,video/mp4,video/3gpp,video/quicktime" id="media-input">
+		<input type="file" accept="*" id="doc-input">
+	</div>
+	<div id="media-editor" style="display:none">
+		<div contenteditable="true" aria-label="Add a caption" id="caption"></div>
+		<div aria-label="Send" role="button" id="media-send">send</div>
+	</div>
+</div>
+<script>
+	const chats = {
+		'Mom': { status: 'online', unread: 2, messages: [
+			['10:01', '23/10/2026', 'Mom', 'Are you coming for dinner?', false],
+			['10:02', '23/10/2026', 'Mom', 'Bring bread please', false],
+		] },
+		'Work Team': { status: 'Alice, Bob, You', unread: 0, messages: [
+			['09:00', '23/10/2026', 'Alice', 'Standup moved to 9:30', false],
+			['09:05', '23/10/2026', 'Me', 'Thanks!', true],
+		] },
+		'+1 555 123 4567': { status: 'last seen today', unread: 0, messages: [] },
+	};
+	window.sent = [];
+	let current = null;
+
+	function renderList(filter = '') {
+		const pane = document.getElementById('pane-side');
+		pane.innerHTML = '';
+		for (const [name, chat] of Object.entries(chats)) {
+			if (filter && !name.toLowerCase().includes(filter.toLowerCase())
+				&& !chat.messages.some(m => m[3].toLowerCase().includes(filter.toLowerCase()))) continue;
+			const row = document.createElement('div');
+			row.setAttribute('role', 'listitem');
+			const last = chat.messages.at(-1);
+			row.innerHTML = `<span title="${name}">${name}</span>` + (last ? `<span title="${last[3]}">${last[3]}</span>` : '')
+				+ (chat.unread ? `<span aria-label="${chat.unread} unread messages">${chat.unread}</span>` : '');
+			row.onclick = () => openChat(name);
+			pane.appendChild(row);
+		}
+	}
+
+	function openChat(name) {
+		current = name;
+		chats[name].unread = 0;
+		document.getElementById('main').style.display = '';
+		const title = document.getElementById('chat-title');
+		title.setAttribute('title', name);
+		title.textContent = name;
+		document.getElementById('chat-status').textContent = chats[name].status;
+		renderMessages();
+	}
+
+	function renderMessages() {
+		const box = document.getElementById('messages');
+		box.innerHTML = '';
+		for (const [time, date, sender, text, out] of chats[current].messages) {
+			const wrap = document.createElement('div');
+			wrap.className = out ? 'message-out' : 'message-in';
+			const msg = document.createElement('div');
+			msg.className = 'copyable-text';
+			msg.setAttribute('data-pre-plain-text', `[${time}, ${date}] ${sender}: `);
+			const span = document.createElement('span');
+			span.className = 'selectable-text';
+			span.textContent = text;
+			msg.appendChild(span);
+			wrap.appendChild(msg);
+			box.appendChild(wrap);
+		}
+	}
+
+	function send(text, kind = 'text') {
+		chats[current].messages.push(['10:30', '23/10/2026', 'Me', text, true]);
+		window.sent.push({ chat: current, text, kind });
+		renderMessages();
+	}
+
+	document.getElementById('search').addEventListener('input', e => renderList(e.target.innerText.trim()));
+
+	const composer = document.getElementById('composer');
+	composer.addEventListener('keydown', e => {
+		if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); document.execCommand('insertText', false, '\n'); }
+		else if (e.key === 'Enter') {
+			e.preventDefault();
+			const text = composer.innerText.replace(/\n$/, '');
+			if (text) send(text);
+			composer.innerHTML = '';
+		}
+	});
+
+	document.getElementById('attach').onclick = () => { document.getElementById('attach-menu').style.display = ''; };
+	for (const id of ['media-input', 'doc-input']) {
+		document.getElementById(id).addEventListener('change', e => {
+			window.pendingFile = { name: e.target.files[0].name, kind: id === 'media-input' ? 'media' : 'document' };
+			document.getElementById('attach-menu').style.display = 'none';
+			document.getElementById('media-editor').style.display = '';
+		});
+	}
+	document.getElementById('media-send').onclick = () => {
+		const caption = document.getElementById('caption').innerText.trim();
+		send(window.pendingFile.name + (caption ? ' | ' + caption : ''), window.pendingFile.kind);
+		document.getElementById('media-editor').style.display = 'none';
+		document.getElementById('caption').innerHTML = '';
+	};
+
+	const params = new URLSearchParams(location.search);
+	if (params.get('qr') === '1') {
+		document.getElementById('qr').style.display = '';
+	} else {
+		document.getElementById('side').style.display = '';
+		renderList();
+		if (location.pathname.endsWith('/send') && params.get('phone')) {
+			const name = Object.keys(chats).find(n => n.replace(/\D/g, '') === params.get('phone'));
+			if (name) openChat(name);
+		}
+	}
+</script>
+</body>
+</html>
